@@ -17,7 +17,9 @@ def load_tweets_from_js(filename):
     with open(filename, 'r') as f:
         js = f.read()
 
-    js = js.removeprefix('window.YTD.tweet.part0 = ')
+    #js = js.removeprefix('window.YTD.tweet.part0 = ')
+    prefix = 'window.YTD.tweet.part0 = '
+    js = js[len(prefix):]
     data = json.loads(js)
     for item in data:
         yield item['tweet']
