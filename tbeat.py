@@ -51,7 +51,7 @@ def load_tweets_from_api(since_id, tokens_filename='tokens.json'):
 
     api = _get_api()
     cursor = tweepy.Cursor(
-        api.user_timeline, tweet_mode='extended', trim_user=True,
+        api.user_timeline, tweet_mode='extended', trim_user=False,
         since_id=since_id
     ).items()
 
