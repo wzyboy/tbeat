@@ -11,4 +11,15 @@
 
 ## Notes
 
-Twitter API has strict API rate limites. It is strongly recommended that you download a copy of your existing tweets and load them into Elasticsearch as mentioned above in steps 2 and 3, instead of fetching all your tweets from the API. With your existing tweets loaded into Elasticsearch, the script will fetch tweets that are newer than the last tweet in the database. On hitting rate limits, the script will pause for 15 min and retry.
+### API limits
+
+Twitter API has strict API rate limits. It is strongly recommended that you download a copy of your existing tweets and load them into Elasticsearch as mentioned above in steps 2 and 3, instead of fetching all your tweets from the API. With your existing tweets loaded into Elasticsearch, the script will fetch tweets that are newer than the last tweet in the database. On hitting rate limits, the script will pause for 15 min and retry.
+
+### Difference between Twitter Archive and Twitter API
+
+A `tweet` object in Twitter Archive (`data/tweet.js`) used to identical to its counterpart returned by Twitter API. However, some time between late 2017 and early 2020, the Archive version diverged from its API counterpart. The Archive version lacks a few dict keys, namely:
+
+- The `user` dict, which contains information about the tweet author, like `user.id` and `user.screen_name`.
+- The `retweeted` bool and `retweeted_status` dict. In the API version, the `retweeted_status` embeds the original tweet in the form of another `tweet` object. However, in the archive version, the `retweeted` bool is always `false`.
+
+If you happend to have an archive file that has a fuller data structure, consider ingesting it first before ingesting archive files downloaded later.

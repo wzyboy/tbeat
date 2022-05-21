@@ -14,7 +14,8 @@ from elasticsearch.helpers import bulk
 DATEFMT = '%a %b %d %H:%M:%S %z %Y'
 
 
-def load_tweets_from_js(filename):
+def load_tweets_from_js(filename, since_id=0):
+    since_id = int(since_id)
 
     with open(filename, 'r') as f:
         js = f.read()
@@ -24,15 +25,18 @@ def load_tweets_from_js(filename):
     js = js[len(prefix):]
     data = json.loads(js)
     for item in data:
-        yield item['tweet']
+        if item['tweet']['id'] > since_id:
+            yield item['tweet']
 
 
-def load_tweets_from_jl(filename):
+def load_tweets_from_jl(filename, since_id=0):
+    since_id = int(since_id)
 
     with open(filename, 'r') as f:
         for line in f:
             tweet = json.loads(line)
-            yield tweet
+            if tweet['id'] > since_id:
+                yield tweet
 
 
 def _get_api(tokens_filename='tokens.json'):
@@ -72,12 +76,16 @@ def load_tweets_from_api(since_id, tokens_filename='tokens.json'):
 
 
 def get_last_tweet(es, index):
-    last_tweet = es.search(
+    resp = es.search(
         index=index,
         body={
             'sort': [{'@timestamp': 'desc'}],
         }
-    )['hits']['hits'][0]['_source']
+    )['hits']['hits']
+    if len(resp) > 0:
+        last_tweet = resp[0]['_source']
+    else:
+        last_tweet = None
     return last_tweet
 
 
@@ -105,14 +113,19 @@ def main():
     args = ap.parse_args()
 
     es = Elasticsearch(args.es)
+    last_tweet = get_last_tweet(es, args.index)
+    if last_tweet:
+        since_id = last_tweet['id']
+        tqdm.write(f'Last tweet is {since_id} created at {last_tweet["created_at"]}.')
+    else:
+        tqdm.write('No last tweet found.')
+        since_id = 0
     if args.source == 'api':
-        last_tweet = get_last_tweet(es, args.index)
-        tqdm.write(f'Last tweet is {last_tweet["id"]} created at {last_tweet["created_at"]}.')
-        tweets = load_tweets_from_api(last_tweet['id'])
+        tweets = load_tweets_from_api(since_id)
     elif args.source.endswith('.js'):
-        tweets = load_tweets_from_js(args.source)
+        tweets = load_tweets_from_js(args.source, since_id)
     elif args.source.endswith(('.jl', '.jsonl')):
-        tweets = load_tweets_from_jl(args.source)
+        tweets = load_tweets_from_jl(args.source, since_id)
     else:
         raise RuntimeError('source must be a .js file from Twitter export, a .jl file that consists of one tweet per line, or "api"')
 
