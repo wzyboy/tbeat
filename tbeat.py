@@ -3,6 +3,7 @@
 import time
 import json
 import argparse
+from pathlib import Path
 from datetime import datetime
 
 import tweepy
@@ -16,6 +17,8 @@ DATEFMT = '%a %b %d %H:%M:%S %z %Y'
 
 
 def load_tweets_from_js(filename, since_id=0):
+    '''Newer Twitter Archives have a single tweet.js file.'''
+
     since_id = int(since_id)
 
     with open(filename, 'r') as f:
@@ -28,6 +31,27 @@ def load_tweets_from_js(filename, since_id=0):
     for item in data:
         if item['tweet']['id'] > since_id:
             yield item['tweet']
+
+
+def load_tweets_from_js_dir(js_dir, since_id=0):
+    '''Older Twitter Archives have a directory with monthly js files.'''
+
+    # Old date format
+    global DATEFMT
+    DATEFMT = '%Y-%m-%d %H:%M:%S %z'
+
+    since_id = int(since_id)
+
+    js_files = sorted(Path(js_dir).glob('*.js'))
+    for js_file in js_files:
+        with open(js_file, 'r') as f:
+            # Remove the first line
+            # e.g. Grailbird.data.tweets_2009_06 =
+            content = ''.join(f.readlines()[1:])
+            data = json.loads(content)
+        for item in data:
+            if item['id'] > since_id:
+                yield item
 
 
 def load_tweets_from_jl(filename, since_id=0):
@@ -112,7 +136,7 @@ def ingest(tweets, es, index):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('source', help='source of tweets: *.js, *.jl, or "api"')
+    ap.add_argument('source', help='source of tweets: "tweet.js", "tweets" dir, *.jl, or "api"')
     ap.add_argument('index', help='dest index of tweets')
     ap.add_argument('--es', help='Elasticsearch address, default is localhost')
     args = ap.parse_args()
@@ -131,8 +155,10 @@ def main():
         tweets = load_tweets_from_js(args.source, since_id)
     elif args.source.endswith(('.jl', '.jsonl')):
         tweets = load_tweets_from_jl(args.source, since_id)
+    elif Path(args.source).is_dir():
+        tweets = load_tweets_from_js_dir(args.source)
     else:
-        raise RuntimeError('source must be a .js file from Twitter export, a .jl file that consists of one tweet per line, or "api"')
+        raise RuntimeError('source must be a tweet.js file from newer Twitter Archive, a "tweets" directory with monthly js files from older Twitter Archive, a .jl file that consists of one tweet per line, or "api"')
 
     ingest(tweets, es, args.index)
 
