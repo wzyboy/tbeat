@@ -17,7 +17,7 @@ Twitter API has strict API rate limits. It is strongly recommended that you down
 
 ### Difference between Twitter Archive and Twitter API
 
-A `tweet` object in Twitter Archive (`data/tweet.js`) used to identical to its counterpart returned by Twitter API. However, some time between late 2017 and early 2020, the Archive version diverged from its API counterpart. The Archive version lacks a few dict keys, namely:
+A `tweet` object in Twitter Archive (`data/tweet.js`) used to identical to its counterpart returned by Twitter API. However, some time between 2019-04 and 2020-03, the Archive version diverged from its API counterpart. The Archive version lacks a few dict keys, namely:
 
 - The `user` dict, which contains information about the tweet author, like `user.id` and `user.screen_name`.
 - The `retweeted` bool and `retweeted_status` dict. In the API version, the `retweeted_status` embeds the original tweet in the form of another `tweet` object. However, in the archive version, the `retweeted` bool is always `false`.
