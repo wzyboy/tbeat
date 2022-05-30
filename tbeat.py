@@ -9,6 +9,7 @@ import tweepy
 from tqdm import tqdm
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
+from elasticsearch.exceptions import NotFoundError
 
 
 DATEFMT = '%a %b %d %H:%M:%S %z %Y'
@@ -76,12 +77,16 @@ def load_tweets_from_api(since_id, tokens_filename='tokens.json'):
 
 
 def get_last_tweet(es, index):
-    resp = es.search(
-        index=index,
-        body={
-            'sort': [{'@timestamp': 'desc'}],
-        }
-    )['hits']['hits']
+    try:
+        resp = es.search(
+            index=index,
+            body={
+                'sort': [{'@timestamp': 'desc'}],
+            }
+        )['hits']['hits']
+    except NotFoundError:
+        return None
+
     if len(resp) > 0:
         last_tweet = resp[0]['_source']
     else:
@@ -109,7 +114,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('source', help='source of tweets: *.js, *.jl, or "api"')
     ap.add_argument('index', help='dest index of tweets')
-    ap.add_argument('--es', nargs='*', help='Elasticsearch address, default is localhost')
+    ap.add_argument('--es', help='Elasticsearch address, default is localhost')
     args = ap.parse_args()
 
     es = Elasticsearch(args.es)
