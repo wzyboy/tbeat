@@ -29,8 +29,25 @@ class TweetsLoader:
         elif Path(source).is_dir():
             tweets = self.load_tweets_from_js_dir(source)
         else:
-            raise RuntimeError('source must be a tweet.js file from newer Twitter Archive, a "tweets" directory with monthly js files from older Twitter Archive, a .jl file that consists of one tweet per line, or "api"')
+            raise RuntimeError(
+                'source must be a tweet.js file from newer Twitter Archive, '
+                'a "tweets" directory with monthly js files from older Twitter Archive, '
+                'a .jl file that consists of one tweet per line, or "api"'
+            )
         return tweets
+
+    def inject_user_dict(self, tweet):
+        '''Check if tweet.user is present. Inject tweet.user.screen_name if not.'''
+
+        if tweet.get('user'):
+            return tweet
+
+        if not self.user_dict:
+            tqdm.write('The tweet does not have a user dict and you did not provide user.screen_name.')
+            raise ValueError('Please provide user.screen_name')
+
+        tweet['user'] = self.user_dict
+        return tweet
 
     def load_tweets_from_js(self, filename):
         '''Newer Twitter Archives have a single tweet.js file.'''
@@ -43,8 +60,10 @@ class TweetsLoader:
         js = js[len(prefix):]
         data = json.loads(js)
         for item in data:
-            if int(item['tweet']['id']) > self.since_id:
-                yield item['tweet']
+            tweet = item['tweet']
+            if int(tweet['id']) > self.since_id:
+                tweet = self.inject_user_dict(tweet)
+                yield tweet
 
     def load_tweets_from_js_dir(self, js_dir):
         '''Older Twitter Archives have a directory with monthly js files.'''
@@ -56,9 +75,10 @@ class TweetsLoader:
                 # e.g. Grailbird.data.tweets_2009_06 =
                 content = ''.join(f.readlines()[1:])
                 data = json.loads(content)
-            for item in data:
-                if item['id'] > self.since_id:
-                    yield item
+            for tweet in data:
+                if tweet['id'] > self.since_id:
+                    tweet = self.inject_user_dict(tweet)
+                    yield tweet
 
     def load_tweets_from_api(self, tokens_filename='tokens.json'):
         '''Load tweets from Twitter API.'''
@@ -96,6 +116,7 @@ class TweetsLoader:
             for line in f:
                 tweet = json.loads(line)
                 if tweet['id'] > self.since_id:
+                    tweet = self.inject_user_dict(tweet)
                     yield tweet
 
 
@@ -150,18 +171,26 @@ def main():
     ap.add_argument('source', help='source of tweets: "tweet.js", "tweets" dir, *.jl, or "api"')
     ap.add_argument('index', help='dest index of tweets')
     ap.add_argument('--es', help='Elasticsearch address, default is localhost')
+    ap.add_argument('--screen-name', help='inject user.screen_name if the value is not present in the archive.')
     args = ap.parse_args()
 
     ingester = ElasticsearchIngester(args.es, args.index)
     last_tweet = ingester.get_last_tweet()
     if last_tweet:
         since_id = last_tweet['id']
-        tqdm.write(f'Last tweet is {since_id} created at {last_tweet["created_at"]}.')
+        tqdm.write(f'Last tweet in index {args.index} is {since_id} created at {last_tweet["created_at"]}.')
     else:
         since_id = 0
-        tqdm.write('No last tweet found.')
+        tqdm.write('No last tweet found in index {args.index}.')
 
-    loader = TweetsLoader(since_id)
+    if args.screen_name:
+        user_dict = {
+            'screen_name': args.screen_name
+        }
+    else:
+        user_dict = None
+
+    loader = TweetsLoader(since_id, user_dict)
     tweets = loader.load(args.source)
     ingester.ingest(tweets)
 
