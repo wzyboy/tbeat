@@ -29,7 +29,7 @@ def load_tweets_from_js(filename, since_id=0):
     js = js[len(prefix):]
     data = json.loads(js)
     for item in data:
-        if item['tweet']['id'] > since_id:
+        if int(item['tweet']['id']) > since_id:
             yield item['tweet']
 
 
