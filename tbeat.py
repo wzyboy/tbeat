@@ -13,125 +13,136 @@ from elasticsearch.helpers import bulk
 from elasticsearch.exceptions import NotFoundError
 
 
-DATEFMT = '%a %b %d %H:%M:%S %z %Y'
+class TweetsLoader:
 
+    def __init__(self, since_id=0, user_dict=None):
+        self.since_id = int(since_id)
+        self.user_dict = user_dict
 
-def load_tweets_from_js(filename, since_id=0):
-    '''Newer Twitter Archives have a single tweet.js file.'''
+    def load(self, source: str):
+        if source == 'api':
+            tweets = self.load_tweets_from_api()
+        elif source.endswith('.js'):
+            tweets = self.load_tweets_from_js(source)
+        elif source.endswith(('.jl', '.jsonl')):
+            tweets = self.load_tweets_from_jl(source)
+        elif Path(source).is_dir():
+            tweets = self.load_tweets_from_js_dir(source)
+        else:
+            raise RuntimeError('source must be a tweet.js file from newer Twitter Archive, a "tweets" directory with monthly js files from older Twitter Archive, a .jl file that consists of one tweet per line, or "api"')
+        return tweets
 
-    since_id = int(since_id)
+    def load_tweets_from_js(self, filename):
+        '''Newer Twitter Archives have a single tweet.js file.'''
 
-    with open(filename, 'r') as f:
-        js = f.read()
+        with open(filename, 'r') as f:
+            js = f.read()
 
-    #js = js.removeprefix('window.YTD.tweet.part0 = ')
-    prefix = 'window.YTD.tweet.part0 = '
-    js = js[len(prefix):]
-    data = json.loads(js)
-    for item in data:
-        if int(item['tweet']['id']) > since_id:
-            yield item['tweet']
-
-
-def load_tweets_from_js_dir(js_dir, since_id=0):
-    '''Older Twitter Archives have a directory with monthly js files.'''
-
-    # Old date format
-    global DATEFMT
-    DATEFMT = '%Y-%m-%d %H:%M:%S %z'
-
-    since_id = int(since_id)
-
-    js_files = sorted(Path(js_dir).glob('*.js'))
-    for js_file in js_files:
-        with open(js_file, 'r') as f:
-            # Remove the first line
-            # e.g. Grailbird.data.tweets_2009_06 =
-            content = ''.join(f.readlines()[1:])
-            data = json.loads(content)
+        #js = js.removeprefix('window.YTD.tweet.part0 = ')
+        prefix = 'window.YTD.tweet.part0 = '
+        js = js[len(prefix):]
+        data = json.loads(js)
         for item in data:
-            if item['id'] > since_id:
-                yield item
+            if int(item['tweet']['id']) > self.since_id:
+                yield item['tweet']
+
+    def load_tweets_from_js_dir(self, js_dir):
+        '''Older Twitter Archives have a directory with monthly js files.'''
+
+        js_files = sorted(Path(js_dir).glob('*.js'))
+        for js_file in js_files:
+            with open(js_file, 'r') as f:
+                # Remove the first line
+                # e.g. Grailbird.data.tweets_2009_06 =
+                content = ''.join(f.readlines()[1:])
+                data = json.loads(content)
+            for item in data:
+                if item['id'] > self.since_id:
+                    yield item
+
+    def load_tweets_from_api(self, tokens_filename='tokens.json'):
+        '''Load tweets from Twitter API.'''
+
+        # Authenticate against Twitter API
+        with open(tokens_filename, 'r') as f:
+            tokens = json.load(f)
+        auth = tweepy.OAuthHandler(tokens['ck'], tokens['cs'])
+        auth.set_access_token(tokens['atk'], tokens['ats'])
+        api = tweepy.API(auth)
+        cursor = tweepy.Cursor(
+            api.user_timeline, tweet_mode='extended', trim_user=False,
+            since_id=self.since_id
+        ).items()
+
+        def status_iterator(cursor):
+            while True:
+                try:
+                    status = next(cursor)
+                    tqdm.write(f'Ingesting tweet {status.id} created at {status.created_at}...')
+                    yield status
+                except tweepy.RateLimitError:
+                    tqdm.write('Rate limit reached. Sleep 15 min.')
+                    time.sleep(15 * 60)
+                except StopIteration:
+                    break
+
+        for status in status_iterator(cursor):
+            yield status._json
+
+    def load_tweets_from_jl(self, filename):
+        '''Load tweets from jsonl files for testing purposes.'''
+
+        with open(filename, 'r') as f:
+            for line in f:
+                tweet = json.loads(line)
+                if tweet['id'] > self.since_id:
+                    yield tweet
 
 
-def load_tweets_from_jl(filename, since_id=0):
-    since_id = int(since_id)
+class ElasticsearchIngester:
 
-    with open(filename, 'r') as f:
-        for line in f:
-            tweet = json.loads(line)
-            if tweet['id'] > since_id:
-                yield tweet
+    def __init__(self, es_url, index):
+        self.es = Elasticsearch(es_url)
+        self.index = index
 
+    def get_last_tweet(self):
+        try:
+            resp = self.es.search(
+                index=self.index,
+                body={
+                    'sort': [{'@timestamp': 'desc'}],
+                }
+            )['hits']['hits']
+        except NotFoundError:
+            return None
 
-def _get_api(tokens_filename='tokens.json'):
+        if len(resp) > 0:
+            last_tweet = resp[0]['_source']
+        else:
+            last_tweet = None
+        return last_tweet
 
-    with open(tokens_filename, 'r') as f:
-        tokens = json.load(f)
-    auth = tweepy.OAuthHandler(tokens['ck'], tokens['cs'])
-    auth.set_access_token(tokens['atk'], tokens['ats'])
-    api = tweepy.API(auth)
+    def parse_timestamp(self, timestamp):
+        try:
+            r = datetime.strptime(timestamp, '%a %b %d %H:%M:%S %z %Y')
+        except ValueError:
+            r = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S %z')
+        return r
 
-    return api
+    def ingest(self, tweets):
 
+        def gen_actions():
+            for tweet in tqdm(tweets):
+                timestamp = self.parse_timestamp(tweet['created_at'])
+                tweet['@timestamp'] = timestamp
+                action = {
+                    '_index': self.index,
+                    '_id': tweet['id'],
+                    '_source': tweet,
+                }
+                yield action
 
-def load_tweets_from_api(since_id, tokens_filename='tokens.json'):
-    since_id = int(since_id)
-
-    api = _get_api()
-    cursor = tweepy.Cursor(
-        api.user_timeline, tweet_mode='extended', trim_user=False,
-        since_id=since_id
-    ).items()
-
-    def status_iterator(cursor):
-        while True:
-            try:
-                status = next(cursor)
-                tqdm.write(f'Ingesting tweet {status.id} created at {status.created_at}...')
-                yield status
-            except tweepy.RateLimitError:
-                tqdm.write('Rate limit reached. Sleep 15 min.')
-                time.sleep(15 * 60)
-            except StopIteration:
-                break
-
-    for status in status_iterator(cursor):
-        yield status._json
-
-
-def get_last_tweet(es, index):
-    try:
-        resp = es.search(
-            index=index,
-            body={
-                'sort': [{'@timestamp': 'desc'}],
-            }
-        )['hits']['hits']
-    except NotFoundError:
-        return None
-
-    if len(resp) > 0:
-        last_tweet = resp[0]['_source']
-    else:
-        last_tweet = None
-    return last_tweet
-
-
-def ingest(tweets, es, index):
-
-    def gen_actions():
-        for tweet in tqdm(tweets):
-            timestamp = datetime.strptime(tweet['created_at'], DATEFMT)
-            tweet['@timestamp'] = timestamp
-            action = {
-                '_index': index,
-                '_id': tweet['id'],
-                '_source': tweet,
-            }
-            yield action
-
-    bulk(es, gen_actions())
+        bulk(self.es, gen_actions())
 
 
 def main():
@@ -141,26 +152,18 @@ def main():
     ap.add_argument('--es', help='Elasticsearch address, default is localhost')
     args = ap.parse_args()
 
-    es = Elasticsearch(args.es)
-    last_tweet = get_last_tweet(es, args.index)
+    ingester = ElasticsearchIngester(args.es, args.index)
+    last_tweet = ingester.get_last_tweet()
     if last_tweet:
         since_id = last_tweet['id']
         tqdm.write(f'Last tweet is {since_id} created at {last_tweet["created_at"]}.')
     else:
-        tqdm.write('No last tweet found.')
         since_id = 0
-    if args.source == 'api':
-        tweets = load_tweets_from_api(since_id)
-    elif args.source.endswith('.js'):
-        tweets = load_tweets_from_js(args.source, since_id)
-    elif args.source.endswith(('.jl', '.jsonl')):
-        tweets = load_tweets_from_jl(args.source, since_id)
-    elif Path(args.source).is_dir():
-        tweets = load_tweets_from_js_dir(args.source)
-    else:
-        raise RuntimeError('source must be a tweet.js file from newer Twitter Archive, a "tweets" directory with monthly js files from older Twitter Archive, a .jl file that consists of one tweet per line, or "api"')
+        tqdm.write('No last tweet found.')
 
-    ingest(tweets, es, args.index)
+    loader = TweetsLoader(since_id)
+    tweets = loader.load(args.source)
+    ingester.ingest(tweets)
 
 
 if __name__ == '__main__':
