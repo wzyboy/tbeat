@@ -22,4 +22,6 @@ A `tweet` object in Twitter Archive (`data/tweet.js`) used to identical to its c
 - The `user` dict, which contains information about the tweet author, like `user.id` and `user.screen_name`.
 - The `retweeted` bool and `retweeted_status` dict. In the API version, the `retweeted_status` embeds the original tweet in the form of another `tweet` object. However, in the archive version, the `retweeted` bool is always `false`.
 
+The script mandates that any tweet has at least `user.screen_name` key present. Use `--screen-name` to provide a value and the script will inject it when the tweet from the source does not have a `user` dict.
+
 If you happend to have an archive file that has a fuller data structure, consider ingesting it first before ingesting archive files downloaded later. If your Twitter Archive has a `tweets` directory that contains monthly `.js` files, it's probably an old one.
