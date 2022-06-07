@@ -181,7 +181,7 @@ def main():
         tqdm.write(f'Last tweet in index {args.index} is {since_id} created at {last_tweet["created_at"]}.')
     else:
         since_id = 0
-        tqdm.write('No last tweet found in index {args.index}.')
+        tqdm.write(f'No last tweet found in index {args.index}.')
 
     if args.screen_name:
         user_dict = {
