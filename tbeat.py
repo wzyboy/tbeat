@@ -106,16 +106,21 @@ class TweetsLoader:
         auth = tweepy.OAuthHandler(tokens['ck'], tokens['cs'])
         auth.set_access_token(tokens['atk'], tokens['ats'])
         api = tweepy.API(auth)
-        cursor = tweepy.Cursor(
-            api.user_timeline, tweet_mode='extended', trim_user=False,
-            since_id=self.since_id
-        ).items()
+        kwargs = {
+            'tweet_mode': 'extended',
+            'trim_user': False,
+        }
+        if self.since_id:
+            kwargs['since_id'] = self.since_id
+        if self.screen_name:
+            kwargs['screen_name'] = self.screen_name
+        cursor = tweepy.Cursor(api.user_timeline, **kwargs).items()
 
         def status_iterator(cursor):
             while True:
                 try:
                     status = next(cursor)
-                    tqdm.write(f'Ingesting tweet {status.id} created at {status.created_at}...')
+                    tqdm.write(f'Ingesting tweet {status.id} by {status.user.screen_name} created at {status.created_at}...')
                     yield status
                 except tweepy.RateLimitError:
                     tqdm.write('Rate limit reached. Sleep 15 min.')
