@@ -6,7 +6,7 @@
 2. [Download a copy of your Twitter archive](https://help.twitter.com/en/managing-your-account/how-to-download-your-twitter-archive).
 3. Load the tweets in the archive: `./tbeat.py tweet.js my-tweets`.
 4. Copy `tokens.example.json` to `tokens.json` and fill in your [API details](https://developer.twitter.com/en/apps).
-5. Use cron / systemd timer to periodically run `./tbeat.py api my-tweets` and keep your tweets updated.
+5. Use cron / systemd timer to periodically run `./tbeat.py api:<screen_name> my-tweets` and keep your tweets updated.
 
 
 ## Notes

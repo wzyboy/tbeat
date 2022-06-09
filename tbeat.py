@@ -28,8 +28,9 @@ class TweetsLoader:
         self.screen_name = screen_name
 
     def load(self, source: str):
-        if source == 'api':
-            tweets = self.load_tweets_from_api()
+        if source.startswith('api:'):
+            screen_name = source.split(':')[1]
+            tweets = self.load_tweets_from_api(screen_name)
         elif source.endswith('.js'):
             tweets = self.load_tweets_from_js(source)
         elif source.endswith(('.jl', '.jsonl')):
@@ -40,7 +41,7 @@ class TweetsLoader:
             raise RuntimeError(
                 'source must be a tweet.js file from newer Twitter Archive, '
                 'a "tweets" directory with monthly js files from older Twitter Archive, '
-                'a .jl file that consists of one tweet per line, or "api"'
+                'a .jl file that consists of one tweet per line, or "api:<screen_name>"'
             )
         return tweets
 
@@ -97,7 +98,7 @@ class TweetsLoader:
                     tweet = self.inject_user_dict(tweet)
                     yield tweet
 
-    def load_tweets_from_api(self, tokens_filename='tokens.json'):
+    def load_tweets_from_api(self, screen_name, tokens_filename='tokens.json'):
         '''Load tweets from Twitter API.'''
 
         # Authenticate against Twitter API
@@ -109,11 +110,10 @@ class TweetsLoader:
         kwargs = {
             'tweet_mode': 'extended',
             'trim_user': False,
+            'screen_name': screen_name,
         }
         if self.since_id:
             kwargs['since_id'] = self.since_id
-        if self.screen_name:
-            kwargs['screen_name'] = self.screen_name
         cursor = tweepy.Cursor(api.user_timeline, **kwargs).items()
 
         def status_iterator(cursor):
@@ -191,10 +191,10 @@ class ElasticsearchIngester:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('source', help='source of tweets: "tweet.js", "tweets" dir, *.jl, or "api"')
+    ap.add_argument('source', help='source of tweets: "tweet.js", "tweets" dir, *.jl, or "api:<screen_name>"')
     ap.add_argument('index', help='dest index of tweets')
     ap.add_argument('--es', help='Elasticsearch address, default is localhost')
-    ap.add_argument('--screen-name', help='inject user.screen_name if the value is not present in the archive.')
+    ap.add_argument('--screen-name', help='inject user.screen_name if the value is not present in the source.')
     args = ap.parse_args()
 
     ingester = ElasticsearchIngester(args.es, args.index)
