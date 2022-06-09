@@ -15,9 +15,17 @@ from elasticsearch.exceptions import NotFoundError
 
 class TweetsLoader:
 
-    def __init__(self, since_id=0, user_dict=None):
+    def __init__(self, screen_name, since_id=0, user_dict=None):
         self.since_id = int(since_id)
         self.user_dict = user_dict
+        # scree_name provided by the user must match screen_name in the index.
+        if screen_name and user_dict:
+            if screen_name != user_dict['screen_name']:
+                raise ValueError(
+                    f'The screen_name provided ({user_dict["screen_name"]}) '
+                    f'does not match the screen_name ({screen_name}) in the index.'
+                )
+        self.screen_name = screen_name
 
     def load(self, source: str):
         if source == 'api':
@@ -40,6 +48,15 @@ class TweetsLoader:
         '''Check if tweet.user is present. Inject tweet.user.screen_name if not.'''
 
         if tweet.get('user'):
+            # Verify if user.screen_name of the incoming tweet matches what we
+            # have in the index, to avoid importing tweets into the wrong
+            # index.
+            if self.screen_name and self.screen_name != tweet['user']['screen_name']:
+                raise ValueError(
+                    f'Incoming tweet has user.screen_name={tweet["user"]["screen_name"]}, '
+                    f'which does not match the last tweet in the index ({self.screen_name}).'
+                )
+            # Return the tweet unmodified if sanity check passes.
             return tweet
 
         if not self.user_dict:
@@ -107,7 +124,8 @@ class TweetsLoader:
                     break
 
         for status in status_iterator(cursor):
-            yield status._json
+            tweet = self.inject_user_dict(status._json)
+            yield tweet
 
     def load_tweets_from_jl(self, filename):
         '''Load tweets from jsonl files for testing purposes.'''
@@ -178,9 +196,11 @@ def main():
     last_tweet = ingester.get_last_tweet()
     if last_tweet:
         since_id = last_tweet['id']
-        tqdm.write(f'Last tweet in index {args.index} is {since_id} created at {last_tweet["created_at"]}.')
+        last_user = last_tweet.get('user', {}).get('screen_name')
+        tqdm.write(f'Last tweet in index {args.index} is {since_id} by {last_user} created at {last_tweet["created_at"]}.')
     else:
         since_id = 0
+        last_user = None
         tqdm.write(f'No last tweet found in index {args.index}.')
 
     if args.screen_name:
@@ -190,7 +210,7 @@ def main():
     else:
         user_dict = None
 
-    loader = TweetsLoader(since_id, user_dict)
+    loader = TweetsLoader(last_user, since_id, user_dict)
     tweets = loader.load(args.source)
     ingester.ingest(tweets)
 
