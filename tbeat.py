@@ -8,6 +8,7 @@ from datetime import datetime
 
 import tweepy
 from tqdm import tqdm
+from tqdm import trange
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 from elasticsearch.exceptions import NotFoundError
@@ -26,21 +27,24 @@ class TweetsLoader:
                     f'does not match the screen_name ({screen_name}) in the index.'
                 )
         self.screen_name = screen_name
+        self._api = None
 
     def load(self, source: str):
         if source.startswith('api:'):
             screen_name = source.split(':')[1]
             tweets = self.load_tweets_from_api(screen_name)
-        elif source.endswith('.js'):
+        elif Path(source).name == 'tweet.js':
             tweets = self.load_tweets_from_js(source)
         elif source.endswith(('.jl', '.jsonl')):
             tweets = self.load_tweets_from_jl(source)
         elif Path(source).is_dir():
             tweets = self.load_tweets_from_js_dir(source)
+        elif Path(source).name == 'like.js':
+            tweets = self.load_tweets_from_like_js(source)
         else:
             raise RuntimeError(
-                'source must be a tweet.js file from newer Twitter Archive, '
-                'a "tweets" directory with monthly js files from older Twitter Archive, '
+                'source must be a tweet.js or like.js file from a newer Twitter Archive, '
+                'a "tweets" directory with monthly js files from an older Twitter Archive, '
                 'a .jl file that consists of one tweet per line, or "api:<screen_name>"'
             )
         return tweets
@@ -98,15 +102,23 @@ class TweetsLoader:
                     tweet = self.inject_user_dict(tweet)
                     yield tweet
 
-    def load_tweets_from_api(self, screen_name, tokens_filename='tokens.json'):
-        '''Load tweets from Twitter API.'''
+    @property
+    def api(self):
+        if self._api:
+            return self._api
 
         # Authenticate against Twitter API
+        tokens_filename = 'tokens.json'
         with open(tokens_filename, 'r') as f:
             tokens = json.load(f)
         auth = tweepy.OAuthHandler(tokens['ck'], tokens['cs'])
         auth.set_access_token(tokens['atk'], tokens['ats'])
-        api = tweepy.API(auth)
+        self._api = tweepy.API(auth)
+        return self._api
+
+    def load_tweets_from_api(self, screen_name):
+        '''Load tweets from Twitter API.'''
+
         kwargs = {
             'tweet_mode': 'extended',
             'trim_user': False,
@@ -114,7 +126,7 @@ class TweetsLoader:
         }
         if self.since_id:
             kwargs['since_id'] = self.since_id
-        cursor = tweepy.Cursor(api.user_timeline, **kwargs).items()
+        cursor = tweepy.Cursor(self.api.user_timeline, **kwargs).items()
 
         def status_iterator(cursor):
             while True:
@@ -141,6 +153,36 @@ class TweetsLoader:
                 if tweet['id'] > self.since_id:
                     tweet = self.inject_user_dict(tweet)
                     yield tweet
+
+    def load_tweets_from_like_js(self, filename):
+        '''Load tweets from like.js file.'''
+
+        with open(filename, 'r') as f:
+            js = f.read()
+
+        prefix = 'window.YTD.like.part0 = '
+        js = js[len(prefix):]
+        data = json.loads(js)
+
+        # Get a list of sorted tweet ids
+        tweet_ids = sorted(datum['like']['tweetId'] for datum in data)
+
+        # Look up tweets by id, up to 100 at a time
+        # https://docs.tweepy.org/en/v3.10.0/api.html#API.statuses_lookup
+        chunk_size = 100
+        for i in trange(0, len(tweet_ids), chunk_size):
+            chunk = tweet_ids[i:i + chunk_size]
+            while True:
+                try:
+                    statuses = self.api.statuses_lookup(chunk, include_entities=True)
+                    if statuses:
+                        break
+                except tweepy.RateLimitError:
+                    tqdm.write('Rate limit reached. Sleep 15 min.')
+                    time.sleep(15 * 60)
+            tweets = [self.inject_user_dict(status._json) for status in statuses]
+            for tweet in tweets:
+                yield tweet
 
 
 class ElasticsearchIngester:
@@ -191,7 +233,7 @@ class ElasticsearchIngester:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('source', help='source of tweets: "tweet.js", "tweets" dir, *.jl, or "api:<screen_name>"')
+    ap.add_argument('source', help='source of tweets: "tweet.js", "like.js", "tweets" dir, "*.jl", or "api:<screen_name>"')
     ap.add_argument('index', help='dest index of tweets')
     ap.add_argument('--es', help='Elasticsearch address, default is localhost')
     ap.add_argument('--screen-name', help='inject user.screen_name if the value is not present in the source.')
