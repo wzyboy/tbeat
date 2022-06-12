@@ -33,6 +33,9 @@ class TweetsLoader:
         if source.startswith('api:'):
             screen_name = source.split(':')[1]
             tweets = self.load_tweets_from_api(screen_name)
+        elif source.startswith('api-fav:'):
+            screen_name = source.split(':')[1]
+            tweets = self.load_tweets_from_api(screen_name, api_name='favorites')
         elif Path(source).name == 'tweet.js':
             tweets = self.load_tweets_from_js(source)
         elif source.endswith(('.jl', '.jsonl')):
@@ -116,7 +119,7 @@ class TweetsLoader:
         self._api = tweepy.API(auth)
         return self._api
 
-    def load_tweets_from_api(self, screen_name):
+    def load_tweets_from_api(self, screen_name, api_name='user_timeline'):
         '''Load tweets from Twitter API.'''
 
         kwargs = {
@@ -126,7 +129,7 @@ class TweetsLoader:
         }
         if self.since_id:
             kwargs['since_id'] = self.since_id
-        cursor = tweepy.Cursor(self.api.user_timeline, **kwargs).items()
+        cursor = tweepy.Cursor(getattr(self.api, api_name), **kwargs).items()
 
         def status_iterator(cursor):
             while True:
@@ -141,7 +144,10 @@ class TweetsLoader:
                     break
 
         for status in status_iterator(cursor):
-            tweet = self.inject_user_dict(status._json)
+            if api_name == 'user_timeline':
+                tweet = self.inject_user_dict(status._json)
+            else:
+                tweet = status._json
             yield tweet
 
     def load_tweets_from_jl(self, filename):
