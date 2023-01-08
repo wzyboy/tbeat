@@ -1,3 +1,4 @@
 elasticsearch==7.10.1
 tqdm==4.56.0
 tweepy==3.10.0
+Mastodon.py==1.8.0
