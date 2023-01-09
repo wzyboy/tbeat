@@ -43,18 +43,18 @@ class TweetsLoader:
             screen_name = source.split(':')[1]
             tweets = self.load_tweets_from_api(screen_name, api_name='favorites')
         elif Path(source).name in ('tweet.js', 'tweets.js'):
-            tweets = self.load_tweets_from_js(source)
+            tweets = self.load_tweets_from_js(Path(source))
         elif source.endswith(('.jl', '.jsonl')):
-            tweets = self.load_tweets_from_jl(source)
+            tweets = self.load_tweets_from_jl(Path(source))
         elif Path(source).is_dir():
-            tweets = self.load_tweets_from_js_dir(source)
+            tweets = self.load_tweets_from_js_dir(Path(source))
         elif Path(source).name == 'like.js':
-            tweets = self.load_tweets_from_like_js(source)
+            tweets = self.load_tweets_from_like_js(Path(source))
         else:
             raise ValueError('Invalid source. Please see documentation for a list of supported sources.')
         return tweets
 
-    def inject_user_dict(self, tweet):
+    def inject_user_dict(self, tweet: dict):
         '''Check if tweet.user is present. Inject tweet.user.screen_name if not.'''
 
         if tweet.get('user'):
@@ -76,7 +76,7 @@ class TweetsLoader:
         tweet['user'] = self.user_dict
         return tweet
 
-    def load_tweets_from_js(self, filename):
+    def load_tweets_from_js(self, filename: Path):
         '''Newer Twitter Archives have a single tweet.js file.'''
 
         with open(filename, 'r') as f:
@@ -92,10 +92,10 @@ class TweetsLoader:
                 tweet = self.inject_user_dict(tweet)
                 yield tweet
 
-    def load_tweets_from_js_dir(self, js_dir):
+    def load_tweets_from_js_dir(self, js_dir: Path):
         '''Older Twitter Archives have a directory with monthly js files.'''
 
-        js_files = sorted(Path(js_dir).glob('*.js'))
+        js_files = sorted(js_dir.glob('*.js'))
         for js_file in js_files:
             with open(js_file, 'r') as f:
                 # Remove the first line
@@ -120,7 +120,7 @@ class TweetsLoader:
         self._api = tweepy.API(auth)
         return self._api
 
-    def load_tweets_from_api(self, screen_name, api_name='user_timeline'):
+    def load_tweets_from_api(self, screen_name: str, api_name: str = 'user_timeline'):
         '''Load tweets from Twitter API.'''
 
         kwargs = {
@@ -151,7 +151,7 @@ class TweetsLoader:
                 tweet = status._json
             yield tweet
 
-    def load_tweets_from_jl(self, filename):
+    def load_tweets_from_jl(self, filename: Path):
         '''Load tweets from jsonl files for testing purposes.'''
 
         with open(filename, 'r') as f:
@@ -161,7 +161,7 @@ class TweetsLoader:
                     tweet = self.inject_user_dict(tweet)
                     yield tweet
 
-    def load_tweets_from_like_js(self, filename):
+    def load_tweets_from_like_js(self, filename: Path):
         '''Load tweets from like.js file.'''
 
         with open(filename, 'r') as f:
@@ -227,7 +227,7 @@ class MastodonLoader:
         parser.feed(html)
         return parser.get_data()
 
-    def load_toots_from_api(self, user_id):
+    def load_toots_from_api(self, user_id: str):
         '''Use an infinite loop to load toots from Mastodon API. If since_id is
         set, the loop stops when it is reached; else, the loop stops until API
         returns empty array or throws exception.'''
