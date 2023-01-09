@@ -42,7 +42,7 @@ class TweetsLoader:
         elif source.startswith('api-fav:'):
             screen_name = source.split(':')[1]
             tweets = self.load_tweets_from_api(screen_name, api_name='favorites')
-        elif Path(source).name == 'tweet.js':
+        elif Path(source).name in ('tweet.js', 'tweets.js'):
             tweets = self.load_tweets_from_js(source)
         elif source.endswith(('.jl', '.jsonl')):
             tweets = self.load_tweets_from_jl(source)
