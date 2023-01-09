@@ -5,16 +5,22 @@ import json
 import argparse
 from pathlib import Path
 from datetime import datetime
+from html.parser import HTMLParser
+
+from typing import Optional
 
 import tweepy
 from tqdm import tqdm
 from tqdm import trange
+from mastodon import Mastodon
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 from elasticsearch.exceptions import NotFoundError
 
 
 class TweetsLoader:
+
+    tokens_filename = Path('tokens.json')
 
     def __init__(self, screen_name, since_id=0, user_dict=None):
         self.since_id = int(since_id)
@@ -111,8 +117,7 @@ class TweetsLoader:
             return self._api
 
         # Authenticate against Twitter API
-        tokens_filename = 'tokens.json'
-        with open(tokens_filename, 'r') as f:
+        with open(self.tokens_filename, 'r') as f:
             tokens = json.load(f)
         auth = tweepy.OAuthHandler(tokens['ck'], tokens['cs'])
         auth.set_access_token(tokens['atk'], tokens['ats'])
@@ -186,9 +191,88 @@ class TweetsLoader:
                 except tweepy.RateLimitError:
                     tqdm.write('Rate limit reached. Sleep 15 min.')
                     time.sleep(15 * 60)
-            tweets = [self.inject_user_dict(status._json) for status in statuses]
+            tweets = [self.inject_user_dict(status._json) for status in statuses]  # type: ignore
             for tweet in tweets:
                 yield tweet
+
+
+class MastodonLoader:
+    tokens_filename = Path('mastodon_tokens.json')
+
+    def __init__(self, since_id: Optional[str] = None) -> None:
+        self._api = None
+        self.since_id = since_id
+
+    def load(self, source: str):
+        if source.startswith('masto-api:'):
+            _, user_id = source.split(':')
+            toots = self.load_toots_from_api(user_id)
+        else:
+            raise NotImplementedError()
+        return toots
+
+    @property
+    def api(self):
+        if self._api:
+            return self._api
+
+        # Authenticate against Mastodon API
+        with open(self.tokens_filename, 'r') as f:
+            tokens = json.load(f)
+        self._api = Mastodon(
+            api_base_url=tokens['api_base_url'],
+            access_token=tokens['access_token'],
+            version_check_mode='none',
+        )
+        return self._api
+
+    def _strip_html_tags(self, html: str):
+        parser = HTMLTagStripper()
+        parser.feed(html)
+        return parser.get_data()
+
+    def load_toots_from_api(self, user_id):
+        '''Use an infinite loop to load toots from Mastodon API. If since_id is
+        set, the loop stops when it is reached; else, the loop stops until API
+        returns empty array or throws exception.'''
+
+        max_id = None
+        reached_since_id = False
+        while not reached_since_id:
+            toots = self.api.account_statuses(user_id, max_id=max_id)
+            if not toots:
+                break
+
+            for toot in toots:
+                toot_id = toot['id']
+                created_at = toot['created_at']
+                toot['content_text'] = self._strip_html_tags(toot['content'])
+                if self.since_id and toot_id <= self.since_id:
+                    reached_since_id = True
+                    break
+                else:
+                    tqdm.write(f'Ingesting toot {toot_id} by {toot["account"]["fqn"]} created at {created_at}...')
+                    yield toot
+
+            # If since_id is not yet reached or not set at all, start again
+            # with a new max_id
+            else:
+                max_id = toots[-1]['id']
+
+
+class HTMLTagStripper(HTMLParser):
+
+    def __init__(self):
+        self.reset()
+        self.strict = False
+        self.convert_charrefs = True
+        self.fed = []
+
+    def handle_data(self, d):
+        self.fed.append(d)
+
+    def get_data(self):
+        return ''.join(self.fed)
 
 
 class ElasticsearchIngester:
@@ -197,7 +281,7 @@ class ElasticsearchIngester:
         self.es = Elasticsearch(es_url)
         self.index = index
 
-    def get_last_tweet(self):
+    def get_last_status(self):
         try:
             resp = self.es.search(
                 index=self.index,
@@ -209,28 +293,31 @@ class ElasticsearchIngester:
             return None
 
         if len(resp) > 0:
-            last_tweet = resp[0]['_source']
+            last_status = resp[0]['_source']
         else:
-            last_tweet = None
-        return last_tweet
+            last_status = None
+        return last_status
 
     def parse_timestamp(self, timestamp):
+        if isinstance(timestamp, datetime):
+            return timestamp
+
         try:
             r = datetime.strptime(timestamp, '%a %b %d %H:%M:%S %z %Y')
         except ValueError:
             r = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S %z')
         return r
 
-    def ingest(self, tweets):
+    def ingest(self, statuses):
 
         def gen_actions():
-            for tweet in tqdm(tweets):
-                timestamp = self.parse_timestamp(tweet['created_at'])
-                tweet['@timestamp'] = timestamp
+            for status in tqdm(statuses):
+                timestamp = self.parse_timestamp(status['created_at'])
+                status['@timestamp'] = timestamp
                 action = {
                     '_index': self.index,
-                    '_id': tweet['id'],
-                    '_source': tweet,
+                    '_id': status['id'],
+                    '_source': status,
                 }
                 yield action
 
@@ -246,15 +333,15 @@ def main():
     args = ap.parse_args()
 
     ingester = ElasticsearchIngester(args.es, args.index)
-    last_tweet = ingester.get_last_tweet()
-    if last_tweet:
-        since_id = last_tweet['id']
-        last_user = last_tweet.get('user', {}).get('screen_name')
-        tqdm.write(f'Last tweet in index {args.index} is {since_id} by {last_user} created at {last_tweet["created_at"]}.')
+    last_status = ingester.get_last_status()
+    if last_status:
+        since_id = last_status['id']
+        last_user = last_status.get('user', {}).get('screen_name')
+        tqdm.write(f'Last status in index {args.index} is {since_id} by {last_user} created at {last_status["created_at"]}.')
     else:
         since_id = 0
         last_user = None
-        tqdm.write(f'No last tweet found in index {args.index}.')
+        tqdm.write(f'No last status found in index {args.index}.')
 
     if args.screen_name:
         user_dict = {
@@ -263,9 +350,13 @@ def main():
     else:
         user_dict = None
 
-    loader = TweetsLoader(last_user, since_id, user_dict)
-    tweets = loader.load(args.source)
-    ingester.ingest(tweets)
+    if args.source.startswith('masto'):
+        loader = MastodonLoader(since_id or None)
+    else:
+        loader = TweetsLoader(last_user, since_id, user_dict)
+
+    statuses = loader.load(args.source)
+    ingester.ingest(statuses)
 
 
 if __name__ == '__main__':

@@ -2,3 +2,4 @@ venv/
 *.js
 *.jl
 tokens.json
+mastodon_tokens.json

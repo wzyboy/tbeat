@@ -1,0 +1,4 @@
+{
+  "api_base_url": "<API domain or URL>",
+  "access_token": "<You can generate one with cURL: https://tinysubversions.com/notes/mastodon-bot/>"
+}
