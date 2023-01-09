@@ -22,7 +22,7 @@ class TweetsLoader:
 
     tokens_filename = Path('tokens.json')
 
-    def __init__(self, screen_name, since_id: Optional[int] = None, user_dict: Optional[dict] = None):
+    def __init__(self, screen_name: Optional[str] = None, since_id: Optional[int] = None, user_dict: Optional[dict] = None):
         self.since_id = since_id or 0
         self.user_dict = user_dict
         # scree_name provided by the user must match screen_name in the index.
@@ -195,14 +195,20 @@ class TweetsLoader:
 class MastodonLoader:
     tokens_filename = Path('mastodon_tokens.json')
 
-    def __init__(self, since_id: Optional[str] = None) -> None:
+    def __init__(self, fqn: Optional[str] = None, since_id: Optional[str] = None) -> None:
+        self.fqn = fqn
         self._api = None
         self.since_id = since_id
 
     def load(self, source: str):
         if source.startswith('masto-api:'):
-            _, user_id = source.split(':')
-            toots = self.load_toots_from_api(user_id)
+            _, fqn = source.split(':')
+            if self.fqn and self.fqn != fqn:
+                raise ValueError(
+                    'Username we are about to fetch statuses from does not match username of the last status in Elasticsearch index: '
+                    f'{fqn} != {self.fqn}'
+                )
+            toots = self.load_toots_from_api(fqn)
         else:
             raise NotImplementedError()
         return toots
@@ -332,7 +338,9 @@ def main():
     last_status = ingester.get_last_status()
     if last_status:
         since_id = last_status['id']
-        last_user = last_status.get('user', {}).get('screen_name')
+        twitter_user = last_status.get('user', {}).get('screen_name')
+        mastodon_user = last_status.get('account', {}).get('fqn')
+        last_user = twitter_user or mastodon_user
         tqdm.write(f'Last status in index {args.index} is {since_id} by {last_user} created at {last_status["created_at"]}.')
     else:
         since_id = None
@@ -347,7 +355,7 @@ def main():
         user_dict = None
 
     if args.source.startswith('masto'):
-        loader = MastodonLoader(since_id)
+        loader = MastodonLoader(last_user, since_id)
     else:
         loader = TweetsLoader(last_user, since_id, user_dict)
 

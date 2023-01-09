@@ -20,7 +20,7 @@ The script supports ingesting tweets/toots from various sources. The script will
 | Twitter Archive        | data/tweet.js<br>data/tweets.js<br>data/like.js<br>data/js/tweets/ |
 | Twitter API            | api:wzyboy<br>api-fav:wzyboy                                       |
 | Twitter API (local)    | statuses.jsonl<br>statuses.jl                                      |
-| Mastodon API (Pleroma) | masto-api:wzyboy<br>masto-api:someone@example.org                  |
+| Mastodon API (Pleroma) | masto-api:someone@example.org                                      |
 
 ### Twitter Archive
 
@@ -59,7 +59,9 @@ To use Mastodon API or Pleroma as a source, copy `mastodon_tokens.example.json` 
 
 For Mastodon users, you can generate an access token in settings. Pleroma does not have a UI for generating tokens, so you can [use cURL to generate one](https://tinysubversions.com/notes/mastodon-bot/).
 
-To ingest all statuses posted by a user, use `masto-api:username@example.org` as a source. If the user lives on the same server as the owner of the access token, the `@example.org` can be omitted.
+To ingest all statuses posted by a user, use `masto-api:username@example.org` as a source.
+
+Note: the script injects an additional key `content_text` into the status JSON, which is text version of the HTML in `content`.
 
 ## Notes
 
