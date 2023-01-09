@@ -22,8 +22,8 @@ class TweetsLoader:
 
     tokens_filename = Path('tokens.json')
 
-    def __init__(self, screen_name, since_id=0, user_dict=None):
-        self.since_id = int(since_id)
+    def __init__(self, screen_name, since_id: Optional[int] = None, user_dict: Optional[dict] = None):
+        self.since_id = since_id or 0
         self.user_dict = user_dict
         # scree_name provided by the user must match screen_name in the index.
         if screen_name and user_dict:
@@ -51,11 +51,7 @@ class TweetsLoader:
         elif Path(source).name == 'like.js':
             tweets = self.load_tweets_from_like_js(source)
         else:
-            raise RuntimeError(
-                'source must be a tweet.js or like.js file from a newer Twitter Archive, '
-                'a "tweets" directory with monthly js files from an older Twitter Archive, '
-                'a .jl file that consists of one tweet per line, or "api:<screen_name>"'
-            )
+            raise ValueError('Invalid source. Please see documentation for a list of supported sources.')
         return tweets
 
     def inject_user_dict(self, tweet):
@@ -326,10 +322,10 @@ class ElasticsearchIngester:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('source', help='source of tweets: "tweet.js", "like.js", "tweets" dir, "*.jl", or "api:<screen_name>"')
-    ap.add_argument('index', help='dest index of tweets')
+    ap.add_argument('source', help='source of statuses; see documentation.')
+    ap.add_argument('index', help='dest Elasticsearch index of statuses')
     ap.add_argument('--es', help='Elasticsearch address, default is localhost')
-    ap.add_argument('--screen-name', help='inject user.screen_name if the value is not present in the source.')
+    ap.add_argument('--screen-name', help='(Twitter) inject user.screen_name if the value is not present in the source.')
     args = ap.parse_args()
 
     ingester = ElasticsearchIngester(args.es, args.index)
@@ -339,7 +335,7 @@ def main():
         last_user = last_status.get('user', {}).get('screen_name')
         tqdm.write(f'Last status in index {args.index} is {since_id} by {last_user} created at {last_status["created_at"]}.')
     else:
-        since_id = 0
+        since_id = None
         last_user = None
         tqdm.write(f'No last status found in index {args.index}.')
 
@@ -351,7 +347,7 @@ def main():
         user_dict = None
 
     if args.source.startswith('masto'):
-        loader = MastodonLoader(since_id or None)
+        loader = MastodonLoader(since_id)
     else:
         loader = TweetsLoader(last_user, since_id, user_dict)
 
