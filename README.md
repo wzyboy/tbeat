@@ -1,6 +1,6 @@
 # Twitter/Mastodon Beat: Ingest Your Tweets/Toots into Elasticsearch
 
-This single-file script loads your tweets/toots into Elasticsearch.
+This single-file script loads your tweets/toots into Elasticsearch. You can then serve your tweets from Elasticsearch with [Twitter Archive Server](https://github.com/wzyboy/ash2).
 
 It supports Twitter API and Mastodon-compatible API (e.g. Mastodon and Pleroma). In fact, the author only tested this against [his own Pleroma server](https://dabr.ca/about).
 
@@ -43,7 +43,7 @@ In this case, pass the path of `tweets` directory to the script and it will be h
 
 ### Twitter API
 
-It is recommended to use this source to "catch up" with your latest tweets after loading your existing tweets with an archive (see above). 
+It is recommended to use this source to "catch up" with your latest tweets after loading your existing tweets with an archive (see above).
 
 To use Twitter API as a source, copy `tokens.example.json` to `tokens.json` and fill in your [API details](https://developer.twitter.com/en/apps).
 
