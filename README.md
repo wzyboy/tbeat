@@ -1,6 +1,6 @@
 # Twitter/Mastodon Beat: Ingest Your Tweets/Toots into Elasticsearch
 
-This single-file script loads your tweets/toots into Elasticsearch. You can then serve your tweets from Elasticsearch with [Twitter Archive Server](https://github.com/wzyboy/ash2).
+This single-file script loads your tweets/toots from local files or API into Elasticsearch. You can then serve your tweets from Elasticsearch with [Twitter Archive Server](https://github.com/wzyboy/ash2).
 
 It supports Twitter API and Mastodon-compatible API (e.g. Mastodon and Pleroma). In fact, the author only tested this against [his own Pleroma server](https://dabr.ca/about).
 
@@ -13,7 +13,7 @@ It supports Twitter API and Mastodon-compatible API (e.g. Mastodon and Pleroma).
 
 ## Sources
 
-The script supports ingesting tweets/toots from various sources. The script will first query Elasticsearch to get the latest status ID and ingest anything newer than that from the source. You can ingest from different sources of the same type into the same index.
+The script supports ingesting tweets/toots from various sources. The script will first query Elasticsearch to get the latest status ID and ingest anything newer than that from the source. You can ingest from multiple sources of one account into one index.
 
 | Source                 | Examples                                                           |
 |------------------------|--------------------------------------------------------------------|
@@ -24,7 +24,7 @@ The script supports ingesting tweets/toots from various sources. The script will
 
 ### Twitter Archive
 
-This is useful when using the script for the first time to load all your existing tweets as Twitter imposes strict API limitations. You can only fetch the recent ~3200 tweets from API and there is rate limit to deal with.
+Ingesting from Twitter Archive is useful when using the script for the first time to load all your existing tweets as Twitter imposes strict API limitations. You can only fetch the recent ~3200 tweets from API and there is rate limit to deal with. So it is recommended that you ingest from an archive (even an outdated one) at least once, before using API to catch up with the latest tweets.
 
 It takes more than 24 hours to [download a copy of your Twitter archive](https://help.twitter.com/en/managing-your-account/how-to-download-your-twitter-archive). Extract the zip file and you can find your tweets in `data/tweet.js` or `data/tweets.js` file.
 
@@ -47,7 +47,7 @@ It is recommended to use this source to "catch up" with your latest tweets after
 
 To use Twitter API as a source, copy `tokens.example.json` to `tokens.json` and fill in your [API details](https://developer.twitter.com/en/apps).
 
-To ingest all tweets posted by a user, use `api:username` as a source. To ingest all tweets that this user liked, use `api-fav:username` as a source.
+To ingest all tweets posted by a user, use `api:username` as a source. To ingest all tweets that this user liked (favourited), use `api-fav:username` as a source.
 
 ### Twitter API (local)
 
@@ -74,8 +74,8 @@ Twitter API has strict API rate limits. It is strongly recommended that you down
 A `tweet` object in Twitter Archive (`data/tweet.js`) used to identical to its counterpart returned by Twitter API. However, some time between 2019-04 and 2020-03, the Archive version diverged from its API counterpart. The Archive version lacks a few dict keys, namely:
 
 - The `user` dict, which contains information about the tweet author, like `user.id` and `user.screen_name`.
-- The `retweeted` bool and `retweeted_status` dict. In the API version, the `retweeted_status` embeds the original tweet in the form of another `tweet` object. However, in the archive version, the `retweeted` bool is always `false`.
+- The `retweeted` bool and `retweeted_status` dict. In the API version, the `retweeted_status` embeds the original tweet in the form of another `tweet` object. However, in the archive version, the `retweeted` bool is always `false` and the `retweeted_status` dict is absent.
 
-The script mandates that any tweet has at least `user.screen_name` key present. Use `--screen-name` to provide a value and the script will inject it when the tweet from the source does not have a `user` dict.
+The script mandates that any tweet has at least `user.screen_name` key present (otherwise it is impossible to tell who the author is). Use `--screen-name` to provide a value and the script will inject it when the tweet from the source does not have a `user` dict.
 
-If you happend to have an archive file that has a fuller data structure, consider ingesting it first before ingesting archive files downloaded later. If your Twitter Archive has a `tweets` directory that contains monthly `.js` files, it's probably an old one.
+If you happend to have an archive downloaded in 2019 or earlier, consider ingesting it first, as it might have a fuller data structure. After that, you can continue to ingest newer archives, and finally, from API.
