@@ -88,7 +88,7 @@ class TweetsLoader:
         data = json.loads(js)
         for item in data:
             tweet = item['tweet']
-            if int(tweet['id']) > self.since_id:
+            if int(tweet['id']) > int(self.since_id):
                 tweet = self.inject_user_dict(tweet)
                 yield tweet
 
