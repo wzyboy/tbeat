@@ -28,6 +28,12 @@ Ingesting from Twitter Archive is useful when using the script for the first tim
 
 It takes more than 24 hours to [download a copy of your Twitter archive](https://help.twitter.com/en/managing-your-account/how-to-download-your-twitter-archive). Extract the zip file and you can find your tweets in `data/tweet.js` or `data/tweets.js` file.
 
+#### Multi-part format
+
+If you have a large number of tweets, your `data/tweet.js` or `data/tweets.js` file might be split into multiple parts. The tweets are not sorted in these files, so you may need to use `--skip-last-status-check` when importing these files.
+
+#### Legacy format
+
 If you happen to have an old Twitter Archive from a few years ago, your tweets might be organized in monthly `.js` files like this:
 
 ```

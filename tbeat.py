@@ -331,11 +331,18 @@ def main():
     ap.add_argument('source', help='source of statuses; see documentation.')
     ap.add_argument('index', help='dest Elasticsearch index of statuses')
     ap.add_argument('--es', help='Elasticsearch address, default is localhost')
-    ap.add_argument('--screen-name', help='(Twitter) inject user.screen_name if the value is not present in the source.')
+    ap.add_argument('--screen-name', help='(Twitter) inject user.screen_name if the value is not present in the source')
+    ap.add_argument('--skip-last-status-check', action='store_true', help=(
+        'import statuses without checking existing ones first; '
+        'useful when importing unsorted tweets from multiple files'
+    ))
     args = ap.parse_args()
 
     ingester = ElasticsearchIngester(args.es, args.index)
-    last_status = ingester.get_last_status()
+    if not args.skip_last_status_check:
+        last_status = ingester.get_last_status()
+    else:
+        last_status = None
     if last_status:
         since_id = last_status['id']
         twitter_user = last_status.get('user', {}).get('screen_name')
